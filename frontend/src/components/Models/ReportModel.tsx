@@ -7,7 +7,7 @@ interface ReportModalProps {
   isOpen: boolean;
   onClose: () => void;
   weekStart: Date;
-  onDownload: (fileFormat: 'csv' | 'pdf') => void;  // Changed parameter name
+  onDownload: (fileFormat: 'csv' | 'pdf') => void;
 }
 
 const ReportModal: React.FC<ReportModalProps> = ({
@@ -24,7 +24,7 @@ const ReportModal: React.FC<ReportModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleDownload = async (fileFormat: 'csv' | 'pdf') => {  // Changed parameter name
+  const handleDownload = async (fileFormat: 'csv' | 'pdf') => {
     setLoading(fileFormat);
     
     try {
@@ -34,12 +34,12 @@ const ReportModal: React.FC<ReportModalProps> = ({
       if (reportType === 'schedule') {
         console.log('📥 Downloading schedule as', fileFormat);
         
-        // Use existing schedule export
+        // Use the export endpoint
         const response = await API.get('/shifts/export', {
           params: {
-            week_start: weekStartStr,
-            export_format: fileFormat  // Use fileFormat instead of format
-          },
+  week_start: weekStartStr,
+  format: fileFormat === 'csv' ? 'excel' : 'pdf'
+},
           responseType: 'blob'
         });
         
@@ -58,7 +58,7 @@ const ReportModal: React.FC<ReportModalProps> = ({
         console.log('📥 Downloading attendance as', fileFormat);
         
         if (fileFormat === 'pdf') {
-          // For PDF, use the export endpoint with format=pdf
+          // Use the export endpoint for PDF
           const response = await API.get('/shifts/export', {
             params: {
               week_start: weekStartStr,
@@ -75,21 +75,22 @@ const ReportModal: React.FC<ReportModalProps> = ({
           link.click();
           link.remove();
         } else {
-          // For CSV/Excel, get attendance summary
+          // For CSV, get attendance summary
           const response = await API.get('/shifts/attendance-summary', {
             params: {
               period: 'week'
             }
           });
           
-          // Create JSON report
-          const data = response.data;
-          const jsonStr = JSON.stringify(data, null, 2);
-          const blob = new Blob([jsonStr], { type: 'application/json' });
+          // Convert to CSV
+          const data = response.data.metrics;
+          const csvContent = `Metric,Value\nTotal Hours,${data.total_hours}\nTotal Employees,${data.total_employees}\nLate Arrivals,${data.late_arrivals}\nOvertime,${data.overtime}\nAbsences,${data.absences}`;
+          
+          const blob = new Blob([csvContent], { type: 'text/csv' });
           const url = window.URL.createObjectURL(blob);
           const link = document.createElement('a');
           link.href = url;
-          link.setAttribute('download', `attendance_summary_${weekStartStr}.json`);
+          link.setAttribute('download', `attendance_summary_${weekStartStr}.csv`);
           document.body.appendChild(link);
           link.click();
           link.remove();
@@ -109,14 +110,19 @@ const ReportModal: React.FC<ReportModalProps> = ({
             }
           });
           
-          // Create JSON report
+          // Convert to CSV
           const data = response.data;
-          const jsonStr = JSON.stringify(data, null, 2);
-          const blob = new Blob([jsonStr], { type: 'application/json' });
+          let csvContent = "Employee,Department,Total Hours,Attendance Days,Leave Days,Absent Days,Late Arrivals,Overtime Days\n";
+          
+          data.employees.forEach((emp: any) => {
+            csvContent += `${emp.employee.name},${emp.employee.department || 'N/A'},${emp.summary.total_hours},${emp.summary.attendance_days},${emp.summary.leave_days},${emp.summary.absent_days},${emp.summary.late_arrivals},${emp.summary.overtime_days}\n`;
+          });
+          
+          const blob = new Blob([csvContent], { type: 'text/csv' });
           const url = window.URL.createObjectURL(blob);
           const link = document.createElement('a');
           link.href = url;
-          link.setAttribute('download', `leave_report_all_${weekStartStr}.json`);
+          link.setAttribute('download', `leave_report_all_${weekStartStr}.csv`);
           document.body.appendChild(link);
           link.click();
           link.remove();
@@ -146,7 +152,6 @@ const ReportModal: React.FC<ReportModalProps> = ({
         toast.success('Leave report downloaded');
       }
       
-      // Call the original onDownload with the fileFormat
       onDownload(fileFormat);
       
     } catch (error: any) {
@@ -173,9 +178,6 @@ const ReportModal: React.FC<ReportModalProps> = ({
     }
     setShowEmployeeDropdown(!showEmployeeDropdown);
   };
-
-  // Logs se pata chalta hai ki shifts display ho rahi hain
-  console.log('📊 ReportModal - Shifts are being displayed in cells');
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -315,7 +317,7 @@ const ReportModal: React.FC<ReportModalProps> = ({
                   </div>
                   <div className="font-medium">
                     {reportType === 'schedule' ? 'Excel' : 
-                     reportType === 'attendance' ? 'JSON' : 'Excel'}
+                     reportType === 'attendance' ? 'CSV' : 'CSV/Excel'}
                   </div>
                   <div className="text-xs text-gray-500 mt-1">
                     {reportType === 'schedule' ? 'Weekly schedule' : 
@@ -350,25 +352,6 @@ const ReportModal: React.FC<ReportModalProps> = ({
               )}
             </button>
           </div>
-
-          {/* Info Messages */}
-          {reportType === 'leave' && selectedEmployee !== 'all' && (
-            <div className="bg-green-50 p-3 rounded-lg mt-2">
-              <p className="text-xs text-green-700 flex items-center">
-                <span className="mr-1">✨</span>
-                Individual report includes daily breakdown, total hours, late arrivals, overtime, and leave days.
-              </p>
-            </div>
-          )}
-
-          {reportType === 'attendance' && (
-            <div className="bg-purple-50 p-3 rounded-lg mt-2">
-              <p className="text-xs text-purple-700 flex items-center">
-                <span className="mr-1">📊</span>
-                Attendance summary: Total hours, late arrivals, overtime, absences for the period.
-              </p>
-            </div>
-          )}
           
           <button
             onClick={onClose}

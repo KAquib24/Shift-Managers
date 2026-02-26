@@ -442,8 +442,8 @@ async def get_employee_monthly_report(
         "employee": {
             "id": employee.id,
             "name": employee.full_name,
-            "department": employee.department,
-            "position": employee.position
+            "department": getattr(employee, "department", None),
+            "position": getattr(employee, "position", ""),
         },
         "period": {
             "month": month,

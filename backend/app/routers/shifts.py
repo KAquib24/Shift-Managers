@@ -442,123 +442,136 @@ async def get_attendance_summary(
 # ============================================
 # 9️⃣ EXPORT SCHEDULE TO EXCEL/PDF
 # ============================================
+# ============================================
+# 9️⃣ EXPORT SCHEDULE TO EXCEL/PDF - FIXED
+# ============================================
 @router.get("/export")
 async def export_schedule(
     week_start: Optional[str] = None,
-    export_format: str = Query("excel", alias="format", enum=["excel", "pdf"]),
+    export_format: str = Query("excel", enum=["excel", "pdf"]),
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """Export weekly schedule to Excel or PDF"""
     
-    # Get schedule data
-    if week_start is not None:
-        start_date = datetime.fromisoformat(week_start)
-    else:
-        today = datetime.now().date()
-        start_date = datetime.combine(today - timedelta(days=today.weekday()), datetime.min.time())
-    
-    end_date = start_date + timedelta(days=6, hours=23, minutes=59)
-    
-    # Get employees and shifts
-    employees = db.query(User).filter(
-        User.company_id == current_user.company_id,
-        User.role == UserRole.EMPLOYEE
-    ).all()
-    
-    shifts = db.query(Shift).filter(
-        Shift.company_id == current_user.company_id,
-        Shift.start_time >= start_date,
-        Shift.start_time <= end_date
-    ).all()
-    
-    # Prepare data for export
-    data = []
-    headers = ["Employee", "Department", "Date", "Shift", "Start", "End", "Status", "Late", "Hours"]
-    data.append(headers)
-    
-    for employee in employees:
-        employee_shifts = [s for s in shifts if s.employee_id == employee.id]
-        
-        if not employee_shifts:
-            # Add empty row
-            data.append([
-                employee.full_name,
-                employee.department or "",
-                "No shifts",
-                "",
-                "",
-                "",
-                "",
-                "",
-                ""
-            ])
+    try:
+        # Get schedule data
+        if week_start is not None:
+            start_date = datetime.fromisoformat(week_start)
         else:
-            for shift in employee_shifts:
-                # Calculate hours worked
-                hours_worked = ""
-                if shift.clock_in_time is not None and shift.clock_out_time is not None:
-                    hours = (shift.clock_out_time - shift.clock_in_time).total_seconds() / 3600
-                    hours_worked = f"{round(hours, 1)}h"
-                
+            today = datetime.now().date()
+            start_date = datetime.combine(today - timedelta(days=today.weekday()), datetime.min.time())
+        
+        end_date = start_date + timedelta(days=6, hours=23, minutes=59)
+        
+        # Get employees and shifts
+        employees = db.query(User).filter(
+            User.company_id == current_user.company_id,
+            User.role == UserRole.EMPLOYEE
+        ).all()
+        
+        shifts = db.query(Shift).filter(
+            Shift.company_id == current_user.company_id,
+            Shift.start_time >= start_date,
+            Shift.start_time <= end_date
+        ).all()
+        
+        # Prepare data for export
+        data = []
+        headers = ["Employee", "Department", "Date", "Shift", "Start", "End", "Status", "Late", "Hours"]
+        data.append(headers)
+        
+        for employee in employees:
+            employee_shifts = [s for s in shifts if s.employee_id == employee.id]
+            
+            if not employee_shifts:
+                # Add empty row
                 data.append([
                     employee.full_name,
-                    employee.department or "",
-                    shift.start_time.strftime("%Y-%m-%d"),
-                    shift.title,
-                    shift.start_time.strftime("%H:%M"),
-                    shift.end_time.strftime("%H:%M"),
-                    shift.status.value if shift.status is not None else "",
-                    "Yes" if shift.is_late else "No",
-                    hours_worked
+                    getattr(employee, "department", "") or "",
+                    "No shifts",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    ""
                 ])
-    
-    if export_format == "excel":
-        # Create Excel file
-        df = pd.DataFrame(data[1:], columns=data[0])
-        output = BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df.to_excel(writer, sheet_name='Schedule', index=False)
+            else:
+                for shift in employee_shifts:
+                    # Calculate hours worked
+                    hours_worked = ""
+                    if shift.clock_in_time is not None and shift.clock_out_time is not None:
+                        hours = (shift.clock_out_time - shift.clock_in_time).total_seconds() / 3600
+                        hours_worked = f"{round(hours, 1)}h"
+                    
+                    data.append([
+                        employee.full_name,
+                        getattr(employee, "department", "") or "",
+                        shift.start_time.strftime("%Y-%m-%d"),
+                        shift.title,
+                        shift.start_time.strftime("%H:%M"),
+                        shift.end_time.strftime("%H:%M"),
+                        shift.status.value if shift.status is not None else "",
+                        "Yes" if shift.is_late else "No",
+                        hours_worked
+                    ])
         
-        output.seek(0)
+        if export_format == "excel":
+            # Create Excel file
+            df = pd.DataFrame(data[1:], columns=data[0])
+            output = BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                df.to_excel(writer, sheet_name='Schedule', index=False)
+            
+            output.seek(0)
+            
+            return StreamingResponse(
+                output,
+                media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                headers={
+                    'Content-Disposition': f'attachment; filename="schedule_{start_date.strftime("%Y%m%d")}.xlsx"',
+                    'Access-Control-Expose-Headers': 'Content-Disposition'
+                }
+            )
         
-        return StreamingResponse(
-            output,
-            media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            headers={'Content-Disposition': f'attachment; filename="schedule_{start_date.strftime("%Y%m%d")}.xlsx"'}
-        )
-    
-    else:  # PDF
-        # Create PDF
-        buffer = BytesIO()
-        doc = SimpleDocTemplate(buffer, pagesize=landscape(letter))
-        elements = []
-        
-        # Add title
-        styles = getSampleStyleSheet()
-        title = f"Schedule {start_date.strftime('%b %d')} - {end_date.strftime('%b %d, %Y')}"
-        elements.append(Paragraph(title, styles['Title']))
-        
-        # Create table
-        table = Table(data)
-        table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 10),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-            ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-            ('GRID', (0, 0), (-1, -1), 1, colors.black)
-        ]))
-        
-        elements.append(table)
-        doc.build(elements)
-        
-        buffer.seek(0)
-        
-        return StreamingResponse(
-            buffer,
-            media_type='application/pdf',
-            headers={'Content-Disposition': f'attachment; filename="schedule_{start_date.strftime("%Y%m%d")}.pdf"'}
-        )
+        else:  # PDF
+            # Create PDF
+            buffer = BytesIO()
+            doc = SimpleDocTemplate(buffer, pagesize=landscape(letter))
+            elements = []
+            
+            # Add title
+            styles = getSampleStyleSheet()
+            title = f"Schedule {start_date.strftime('%b %d')} - {end_date.strftime('%b %d, %Y')}"
+            elements.append(Paragraph(title, styles['Title']))
+            
+            # Create table
+            table = Table(data)
+            table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 10),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+                ('GRID', (0, 0), (-1, -1), 1, colors.black)
+            ]))
+            
+            elements.append(table)
+            doc.build(elements)
+            
+            buffer.seek(0)
+            
+            return StreamingResponse(
+                buffer,
+                media_type='application/pdf',
+                headers={
+                    'Content-Disposition': f'attachment; filename="schedule_{start_date.strftime("%Y%m%d")}.pdf"',
+                    'Access-Control-Expose-Headers': 'Content-Disposition'
+                }
+            )
+    except Exception as e:
+        print(f"❌ Export error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
