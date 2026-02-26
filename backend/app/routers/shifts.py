@@ -216,16 +216,16 @@ async def clock_in_out(
             raise HTTPException(status_code=400, detail="Already clocked in")
         
         # Update using SQLAlchemy model attributes
-        shift.clock_in_time = now
-        shift.status = ShiftStatus.IN_PROGRESS
-        shift.clock_in_method = "manual"
+        setattr(shift, "clock_in_time", now)
+        setattr(shift, "status", ShiftStatus.IN_PROGRESS)
+        setattr(shift, "clock_in_method", "manual")
         
         # Check if late
         scheduled_start = shift.start_time
         if now > scheduled_start:
             late_minutes = int((now - scheduled_start).total_seconds() / 60)
-            shift.is_late = True
-            shift.late_minutes = late_minutes
+            setattr(shift, "is_late", True)
+            setattr(shift, "late_minutes", late_minutes)
     
     elif clock_data.action == "clock_out":
         # Check conditions
@@ -234,13 +234,13 @@ async def clock_in_out(
         if shift.clock_out_time is not None:
             raise HTTPException(status_code=400, detail="Already clocked out")
         
-        shift.clock_out_time = now
-        shift.status = ShiftStatus.COMPLETED
+        setattr(shift, "clock_out_time", now)
+        setattr(shift, "status", ShiftStatus.COMPLETED)
         
         # Calculate actual hours
         if shift.clock_in_time is not None:
             hours = (now - shift.clock_in_time).total_seconds() / 3600
-            shift.actual_hours = round(hours, 2)
+            setattr(shift, "actual_hours", round(hours, 2))
     
     db.commit()
     db.refresh(shift)
@@ -294,7 +294,7 @@ async def delete_shift(
     if shift is None:
         raise HTTPException(status_code=404, detail="Shift not found")
     
-    shift.status = ShiftStatus.CANCELLED
+    setattr(shift, "status", ShiftStatus.CANCELLED)
     db.commit()
     
     return {"message": "Shift cancelled successfully"}

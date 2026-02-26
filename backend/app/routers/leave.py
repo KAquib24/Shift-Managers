@@ -8,7 +8,12 @@ from app.models.user import User, UserRole
 from app.models.shift import Shift, ShiftStatus
 from app.models.leave import LeaveRequest, LeaveStatus
 from app.schemas.leave import LeaveCreate, LeaveResponse, LeaveUpdate, LeaveListResponse
+from app.schemas.report import (
+    EmployeeMonthlyReport, 
+    EmployeeReportResponse
+)
 from app.utils.auth import get_current_active_user, require_role
+import calendar
 
 router = APIRouter(prefix="/leave", tags=["Leave"])
 
@@ -59,7 +64,7 @@ async def request_leave(
     db.refresh(leave)
     
     # Add employee name
-    leave.employee_name = current_user.full_name
+    setattr(leave, "employee_name", current_user.full_name)
     
     return leave
 
@@ -86,7 +91,7 @@ async def get_my_leave_requests(
     # Add employee name
     result = []
     for leave in leaves:
-        leave.employee_name = current_user.full_name
+        setattr(leave, "employee_name", current_user.full_name)
         result.append(leave)
     
     return result
@@ -110,7 +115,8 @@ async def get_pending_leaves(
     result = []
     for leave in leaves:
         employee = db.query(User).filter(User.id == leave.employee_id).first()
-        leave.employee_name = employee.full_name if employee is not None else "Unknown"
+        employee_name = employee.full_name if employee is not None else "Unknown"
+        setattr(leave, "employee_name", employee_name)
         result.append(leave)
     
     return result
@@ -151,7 +157,8 @@ async def get_all_leaves(
     result = []
     for leave in leaves:
         employee = db.query(User).filter(User.id == leave.employee_id).first()
-        leave.employee_name = employee.full_name if employee is not None else "Unknown"
+        employee_name = employee.full_name if employee is not None else "Unknown"
+        setattr(leave, "employee_name", employee_name)
         result.append(leave)
     
     # Calculate stats
@@ -201,14 +208,14 @@ async def update_leave_status(
     
     # Update status
     if update_data.status == "approved":
-        leave.status = LeaveStatus.APPROVED
+        setattr(leave, "status", LeaveStatus.APPROVED)
     elif update_data.status == "rejected":
-        leave.status = LeaveStatus.REJECTED
+        setattr(leave, "status", LeaveStatus.REJECTED)
     else:
         raise HTTPException(status_code=400, detail="Invalid status. Use 'approved' or 'rejected'")
     
-    leave.reviewed_by = current_user.id
-    leave.reviewed_at = datetime.now()
+    setattr(leave, "reviewed_by", current_user.id)
+    setattr(leave, "reviewed_at", datetime.now())
     
     # If approved, auto-remove shifts during leave period
     if leave.status == LeaveStatus.APPROVED:
@@ -220,8 +227,8 @@ async def update_leave_status(
         ).all()
         
         for shift in shifts:
-            shift.status = ShiftStatus.CANCELLED
-            shift.notes = f"Cancelled due to leave (approved on {datetime.now().date()})"
+            setattr(shift, "status", ShiftStatus.CANCELLED)
+            setattr(shift, "notes", f"Cancelled due to leave (approved on {datetime.now().date()})")
     
     db.commit()
     
@@ -253,7 +260,7 @@ async def cancel_leave_request(
     if leave.status != LeaveStatus.PENDING:
         raise HTTPException(status_code=400, detail=f"Cannot cancel {leave.status.value} leave")
     
-    leave.status = LeaveStatus.CANCELLED
+    setattr(leave, "status", LeaveStatus.CANCELLED)
     
     db.commit()
     
@@ -308,3 +315,308 @@ async def get_leave_summary(
         "rejected": rejected,
         "total_days": total_days
     }
+
+# ============================================
+# 8️⃣ EMPLOYEE MONTHLY REPORT (INDIVIDUAL)
+# ============================================
+@router.get("/employee-report/{employee_id}", response_model=EmployeeReportResponse)
+async def get_employee_monthly_report(
+    employee_id: int,
+    month: Optional[int] = Query(None, description="Month (1-12)"),
+    year: Optional[int] = Query(None, description="Year (e.g., 2026)"),
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get detailed monthly report for a specific employee
+    """
+    
+    # Check if user has permission (admin or the employee themselves)
+    if current_user.role != UserRole.ADMIN and current_user.id != employee_id:
+        raise HTTPException(status_code=403, detail="Not authorized to view this report")
+    
+    # Get employee details
+    employee = db.query(User).filter(
+        User.id == employee_id,
+        User.company_id == current_user.company_id
+    ).first()
+    
+    if employee is None:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    
+    # Set default month/year to current if not provided
+    if month is None:
+        month = datetime.now().month
+    if year is None:
+        year = datetime.now().year
+    
+    # Calculate date range for the month
+    start_date = datetime(year, month, 1, 0, 0, 0)
+    if month == 12:
+        end_date = datetime(year + 1, 1, 1, 23, 59, 59) - timedelta(days=1)
+    else:
+        end_date = datetime(year, month + 1, 1, 23, 59, 59) - timedelta(days=1)
+    
+    # Get all shifts for the employee in this month
+    shifts = db.query(Shift).filter(
+        Shift.employee_id == employee_id,
+        Shift.start_time >= start_date,
+        Shift.end_time <= end_date,
+        Shift.status.in_([ShiftStatus.COMPLETED, ShiftStatus.IN_PROGRESS])
+    ).order_by(Shift.start_time).all()
+    
+    # Get all leave requests for the employee in this month
+    leaves = db.query(LeaveRequest).filter(
+        LeaveRequest.employee_id == employee_id,
+        LeaveRequest.start_date >= start_date.date(),
+        LeaveRequest.end_date <= end_date.date(),
+        LeaveRequest.status == LeaveStatus.APPROVED
+    ).all()
+    
+    # Calculate statistics
+    total_seconds = 0
+    total_late_minutes = 0
+    late_days = 0
+    overtime_days = 0
+    attendance_days = set()
+    
+    daily_breakdown = []
+    
+    # Process each day of the month
+    current_date = start_date
+    while current_date <= end_date:
+        date_str = current_date.strftime("%Y-%m-%d")
+        day_shifts = [s for s in shifts if s.start_time.date() == current_date.date()]
+        
+        if day_shifts:
+            # Calculate daily hours
+            daily_seconds = 0
+            daily_late = False
+            daily_overtime = False
+            
+            for shift in day_shifts:
+                if shift.clock_in_time is not None and shift.clock_out_time is not None:
+                    seconds = (shift.clock_out_time - shift.clock_in_time).total_seconds()
+                    daily_seconds += seconds
+                    
+                    if shift.is_late:
+                        daily_late = True
+                        total_late_minutes += shift.late_minutes or 0
+                    
+                    if shift.clock_out_time > shift.end_time:
+                        daily_overtime = True
+            
+            if daily_seconds > 0:
+                attendance_days.add(date_str)
+                total_seconds += daily_seconds
+                
+                if daily_late:
+                    late_days += 1
+                if daily_overtime:
+                    overtime_days += 1
+                
+                daily_breakdown.append({
+                    "date": date_str,
+                    "day_name": current_date.strftime("%A"),
+                    "hours": round(daily_seconds / 3600, 2),
+                    "minutes": int(daily_seconds / 60),
+                    "shifts": len(day_shifts),
+                    "late": daily_late,
+                    "overtime": daily_overtime
+                })
+        
+        current_date += timedelta(days=1)
+    
+    # Calculate leave days in this month
+    leave_days = 0
+    for leave in leaves:
+        start = max(leave.start_date, start_date.date())
+        end = min(leave.end_date, end_date.date())
+        days = (end - start).days + 1
+        leave_days += days
+    
+    total_hours = total_seconds / 3600
+    total_minutes = int(total_seconds / 60)
+    
+    return {
+        "employee": {
+            "id": employee.id,
+            "name": employee.full_name,
+            "department": employee.department,
+            "position": employee.position
+        },
+        "period": {
+            "month": month,
+            "year": year,
+            "month_name": calendar.month_name[month],
+            "start_date": start_date.date().isoformat(),
+            "end_date": end_date.date().isoformat()
+        },
+        "summary": {
+            "total_days_in_month": (end_date - start_date).days + 1,
+            "attendance_days": len(attendance_days),
+            "leave_days": leave_days,
+            "absent_days": (end_date - start_date).days + 1 - len(attendance_days) - leave_days,
+            "total_hours": round(total_hours, 2),
+            "total_minutes": total_minutes,
+            "average_hours_per_day": round(total_hours / len(attendance_days), 2) if attendance_days else 0,
+            "late_arrivals": late_days,
+            "overtime_days": overtime_days,
+            "total_late_minutes": total_late_minutes
+        },
+        "daily_breakdown": daily_breakdown
+    }
+
+# ============================================
+# 9️⃣ GET ALL EMPLOYEES REPORT (Admin only)
+# ============================================
+@router.get("/all-employees-report")
+async def get_all_employees_monthly_report(
+    month: Optional[int] = Query(None, description="Month (1-12)"),
+    year: Optional[int] = Query(None, description="Year (e.g., 2026)"),
+    current_user: User = Depends(require_role(UserRole.ADMIN)),
+    db: Session = Depends(get_db)
+):
+    """Get monthly reports for all employees (Admin only)"""
+    
+    # Set default month/year to current if not provided
+    if month is None:
+        month = datetime.now().month
+    if year is None:
+        year = datetime.now().year
+    
+    # Get all employees in company
+    employees = db.query(User).filter(
+        User.company_id == current_user.company_id,
+        User.role == UserRole.EMPLOYEE,
+        User.is_active == True
+    ).all()
+    
+    reports = []
+    
+    for employee in employees:
+        # Get report for each employee using the existing function
+        report = await get_employee_monthly_report(
+            employee_id=employee.id,
+            month=month,
+            year=year,
+            current_user=current_user,
+            db=db
+        )
+        reports.append(report)
+    
+    # Calculate company totals
+    total_hours = sum(r["summary"]["total_hours"] for r in reports)
+    total_minutes = sum(r["summary"]["total_minutes"] for r in reports)
+    total_late = sum(r["summary"]["late_arrivals"] for r in reports)
+    total_overtime = sum(r["summary"]["overtime_days"] for r in reports)
+    total_leave_days = sum(r["summary"]["leave_days"] for r in reports)
+    
+    return {
+        "period": {
+            "month": month,
+            "year": year,
+            "month_name": calendar.month_name[month]
+        },
+        "total_employees": len(employees),
+        "company_totals": {
+            "total_hours": round(total_hours, 2),
+            "total_minutes": total_minutes,
+            "total_late_arrivals": total_late,
+            "total_overtime_days": total_overtime,
+            "total_leave_days": total_leave_days
+        },
+        "employees": reports
+    }
+
+# ============================================
+# 🔟 EXPORT EMPLOYEE REPORT TO EXCEL
+# ============================================
+@router.get("/export-employee-report/{employee_id}")
+async def export_employee_report_excel(
+    employee_id: int,
+    month: Optional[int] = Query(None),
+    year: Optional[int] = Query(None),
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Export employee monthly report to Excel"""
+    
+    # Get the report data
+    report = await get_employee_monthly_report(
+        employee_id=employee_id,
+        month=month,
+        year=year,
+        current_user=current_user,
+        db=db
+    )
+    
+    # Create Excel file
+    import pandas as pd
+    from io import BytesIO
+    from fastapi.responses import StreamingResponse
+    
+    # Create DataFrames
+    summary_data = {
+        "Metric": [
+            "Employee Name",
+            "Department",
+            "Month",
+            "Year",
+            "Total Days in Month",
+            "Attendance Days",
+            "Leave Days",
+            "Absent Days",
+            "Total Hours Worked",
+            "Total Minutes Worked",
+            "Average Hours/Day",
+            "Late Arrivals",
+            "Overtime Days",
+            "Total Late Minutes"
+        ],
+        "Value": [
+            report["employee"]["name"],
+            report["employee"]["department"] or "N/A",
+            report["period"]["month_name"],
+            str(report["period"]["year"]),
+            str(report["summary"]["total_days_in_month"]),
+            str(report["summary"]["attendance_days"]),
+            str(report["summary"]["leave_days"]),
+            str(report["summary"]["absent_days"]),
+            f"{report['summary']['total_hours']} hrs",
+            f"{report['summary']['total_minutes']} mins",
+            f"{report['summary']['average_hours_per_day']} hrs",
+            str(report["summary"]["late_arrivals"]),
+            str(report["summary"]["overtime_days"]),
+            f"{report['summary']['total_late_minutes']} mins"
+        ]
+    }
+    
+    daily_data = []
+    for day in report["daily_breakdown"]:
+        daily_data.append({
+            "Date": day["date"],
+            "Day": day["day_name"],
+            "Hours": day["hours"],
+            "Minutes": day["minutes"],
+            "Shifts": day["shifts"],
+            "Late": "Yes" if day["late"] else "No",
+            "Overtime": "Yes" if day["overtime"] else "No"
+        })
+    
+    # Create Excel file
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        pd.DataFrame(summary_data).to_excel(writer, sheet_name='Summary', index=False)
+        pd.DataFrame(daily_data).to_excel(writer, sheet_name='Daily Breakdown', index=False)
+    
+    output.seek(0)
+    
+    filename = f"{report['employee']['name']}_{report['period']['month_name']}_{report['period']['year']}_report.xlsx"
+    filename = filename.replace(" ", "_")
+    
+    return StreamingResponse(
+        output,
+        media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        headers={'Content-Disposition': f'attachment; filename="{filename}"'}
+    )
