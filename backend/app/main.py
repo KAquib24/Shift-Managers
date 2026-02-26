@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import auth, shifts, employees
+from app.routers import auth, shifts, employees, leave
 from app.core.database import engine, Base
 
 # Create database tables
@@ -26,6 +26,7 @@ app.add_middleware(
 app.include_router(auth.router, prefix="/api")
 app.include_router(shifts.router, prefix="/api")
 app.include_router(employees.router, prefix="/api")
+app.include_router(leave.router, prefix="/api")  # Add this line
 
 @app.get("/")
 async def root():
@@ -35,5 +36,4 @@ async def root():
 async def health_check():
     return {"status": "healthy"}
 
-# Run with: uvicorn app.main:app --reload
 print("✅ Server started on http://localhost:8000")
