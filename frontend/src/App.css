@@ -1,0 +1,81 @@
+/* Add to your global CSS file */
+
+.shift-cell {
+  min-height: 120px;
+  transition: background-color 0.2s;
+}
+
+.shift-card {
+  transition: all 0.2s;
+}
+
+.shift-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+/* Multiple shifts in a day */
+.shift-stack .shift-card:not(:last-child) {
+  margin-bottom: 4px;
+}
+
+/* Different status colors */
+.shift-scheduled {
+  border-left: 3px solid #3b82f6;
+}
+
+.shift-in-progress {
+  border-left: 3px solid #10b981;
+}
+
+.shift-completed {
+  border-left: 3px solid #6b7280;
+  opacity: 0.8;
+}
+
+.shift-late {
+  border-left: 3px solid #ef4444;
+  background-color: #fef2f2;
+}
+#root {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 2rem;
+  text-align: center;
+}
+
+.logo {
+  height: 6em;
+  padding: 1.5em;
+  will-change: filter;
+  transition: filter 300ms;
+}
+.logo:hover {
+  filter: drop-shadow(0 0 2em #646cffaa);
+}
+.logo.react:hover {
+  filter: drop-shadow(0 0 2em #61dafbaa);
+}
+
+@keyframes logo-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  a:nth-of-type(2) .logo {
+    animation: logo-spin infinite 20s linear;
+  }
+}
+
+.card {
+  padding: 2em;
+}
+
+.read-the-docs {
+  color: #888;
+}

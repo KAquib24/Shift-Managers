@@ -1,0 +1,40 @@
+@import "tailwindcss";
+/* Add to your global CSS file */
+
+.shift-cell {
+  min-height: 120px;
+  transition: background-color 0.2s;
+}
+
+.shift-card {
+  transition: all 0.2s;
+}
+
+.shift-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+/* Multiple shifts in a day */
+.shift-stack .shift-card:not(:last-child) {
+  margin-bottom: 4px;
+}
+
+/* Different status colors */
+.shift-scheduled {
+  border-left: 3px solid #3b82f6;
+}
+
+.shift-in-progress {
+  border-left: 3px solid #10b981;
+}
+
+.shift-completed {
+  border-left: 3px solid #6b7280;
+  opacity: 0.8;
+}
+
+.shift-late {
+  border-left: 3px solid #ef4444;
+  background-color: #fef2f2;
+}
