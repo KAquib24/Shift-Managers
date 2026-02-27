@@ -35,6 +35,7 @@ function AdminDashboard() {
   const [pendingEmployees, setPendingEmployees] = useState<PendingEmployee[]>([]);
   const [loading, setLoading] = useState(true);
   const [companyDetails, setCompanyDetails] = useState<CompanyDetails | null>(null);
+  const [companyLoading, setCompanyLoading] = useState(true);
   const { user, logout } = useAuth();
 
   useEffect(() => {
@@ -48,18 +49,25 @@ function AdminDashboard() {
       setPendingEmployees(response.data.employees);
     } catch (error) {
       console.error('Error fetching pending employees:', error);
+      toast.error('Failed to load pending employees');
     } finally {
       setLoading(false);
     }
   };
 
   const fetchCompanyDetails = async () => {
+    setCompanyLoading(true);
     try {
-      // You might need to add this endpoint
-      const response = await API.get('/company/details');
+      // ✅ FIXED: Use correct endpoint /auth/company/details
+      const response = await API.get('/auth/company/details');
       setCompanyDetails(response.data);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error fetching company details:', error);
+      if (error.response?.status === 404) {
+        toast.error('Company details not found');
+      }
+    } finally {
+      setCompanyLoading(false);
     }
   };
 
@@ -74,8 +82,13 @@ function AdminDashboard() {
   };
 
   const rejectEmployee = async (employeeId: number) => {
-    toast.success('Employee rejected');
-    setPendingEmployees(prev => prev.filter(emp => emp.id !== employeeId));
+    try {
+      // You might want to add a reject endpoint
+      toast.success('Employee rejected');
+      setPendingEmployees(prev => prev.filter(emp => emp.id !== employeeId));
+    } catch (error) {
+      toast.error('Failed to reject employee');
+    }
   };
 
   const copyCompanyCode = () => {
@@ -120,40 +133,56 @@ function AdminDashboard() {
         <div className="bg-white rounded-lg shadow p-6 mb-8">
           <h2 className="text-2xl font-bold mb-4">Company Settings</h2>
           
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Company Name
-              </label>
-              <div className="text-lg font-semibold mb-4">
-                {companyDetails?.name || 'Your Company'}
-              </div>
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Your Company Code
-              </label>
-              <div className="flex items-center space-x-2">
-                <div className="bg-gray-100 px-4 py-3 rounded-lg font-mono text-xl font-bold tracking-wider">
-                  {companyDetails?.company_code || 'ABC123'}
+          {companyLoading ? (
+            <div className="text-center py-4 text-gray-500">Loading company details...</div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Company Name
+                </label>
+                <div className="text-lg font-semibold mb-4">
+                  {companyDetails?.name || 'Your Company'}
                 </div>
-                <button
-                  onClick={copyCompanyCode}
-                  className="px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300 transition-colors"
-                  title="Copy to clipboard"
-                >
-                  📋
-                </button>
+                {companyDetails?.industry && (
+                  <>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Industry
+                    </label>
+                    <div className="text-lg mb-4">
+                      {companyDetails.industry}
+                    </div>
+                  </>
+                )}
               </div>
-              <p className="text-sm text-gray-500 mt-2">
-                Share this code with employees to join your company
-              </p>
-              <p className="text-xs text-gray-400 mt-1">
-                Employees will need this code to register
-              </p>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Your Company Code
+                </label>
+                <div className="flex items-center space-x-2">
+                  <div className="bg-gray-100 px-4 py-3 rounded-lg font-mono text-xl font-bold tracking-wider">
+                    {companyDetails?.company_code || 'Loading...'}
+                  </div>
+                  {companyDetails?.company_code && (
+                    <button
+                      onClick={copyCompanyCode}
+                      className="px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300 transition-colors"
+                      title="Copy to clipboard"
+                    >
+                      📋
+                    </button>
+                  )}
+                </div>
+                <p className="text-sm text-gray-500 mt-2">
+                  Share this code with employees to join your company
+                </p>
+                <p className="text-xs text-gray-400 mt-1">
+                  Employees will need this code to register
+                </p>
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
         {/* Pending Approvals */}
@@ -214,7 +243,9 @@ function AdminDashboard() {
           </div>
           <div className="bg-white p-6 rounded-lg shadow">
             <div className="text-2xl mb-2">⏰</div>
-            <div className="text-2xl font-bold">0</div>
+            <div className="text-2xl font-bold">
+              {companyDetails ? 'Active' : '0'}
+            </div>
             <div className="text-sm text-gray-600">Active Employees</div>
           </div>
         </div>

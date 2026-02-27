@@ -303,6 +303,37 @@ async def read_users_me(current_user: User = Depends(get_current_user)):
     return current_user
 
 # ============================================
+# 9️⃣ GET COMPANY DETAILS (Admin only)
+# ============================================
+@router.get("/company/details")
+async def get_company_details(
+    current_user: User = Depends(require_role(UserRole.ADMIN)),
+    db: Session = Depends(get_db)
+):
+    """Get current user's company details (Admin only)"""
+    
+    if not current_user.company_id:
+        raise HTTPException(status_code=404, detail="No company associated with this user")
+    
+    company = db.query(Company).filter(
+        Company.id == current_user.company_id
+    ).first()
+    
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found")
+    
+    return {
+        "id": company.id,
+        "name": company.name,
+        "company_code": company.company_code,
+        "industry": company.industry,
+        "size": company.size,
+        "timezone": company.timezone,
+        "currency": company.currency,
+        "created_at": company.created_at.isoformat() if company.created_at else None
+    }
+
+# ============================================
 # 8️⃣ TEST ENDPOINT (No auth required)
 # ============================================
 @router.get("/test")

@@ -1,4 +1,3 @@
-# backend/app/core/config.py
 from pydantic_settings import BaseSettings
 from functools import lru_cache
 
@@ -21,6 +20,7 @@ class Settings(BaseSettings):
     
     class Config:
         env_file = ".env"
+        extra = "ignore"  # This allows extra fields in .env
 
 @lru_cache()
 def get_settings():
