@@ -4,7 +4,7 @@ import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
 
 const API = axios.create({
-  baseURL: 'http://localhost:8000/api'
+  baseURL: "/api"
 });
 
 // Add token to requests

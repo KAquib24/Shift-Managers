@@ -2,25 +2,43 @@ from pydantic_settings import BaseSettings
 from functools import lru_cache
 
 class Settings(BaseSettings):
-    # Database
+    # =========================
+    # DATABASE
+    # =========================
     DB_HOST: str = "localhost"
     DB_PORT: int = 3306
-    DB_USER: str = "workforce_user"
-    DB_PASSWORD: str = "workforce_pass"
-    DB_NAME: str = "workforce_db"
-    
-    # JWT
-    SECRET_KEY: str = "your-secret-key-change-this-in-production"
+    DB_USER: str = "root"
+    DB_PASSWORD: str = ""
+    DB_NAME: str = "workforce"
+
+    # =========================
+    # REDIS
+    # =========================
+    REDIS_HOST: str = "localhost"
+    REDIS_PORT: int = 6379
+
+    # =========================
+    # SECURITY / JWT
+    # =========================
+    SECRET_KEY: str = "dev-secret-change-in-production"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
-    
-    # App
+
+    # =========================
+    # APP SETTINGS
+    # =========================
     APP_NAME: str = "Workforce Management"
     DEBUG: bool = True
-    
-    class Config:
-        env_file = ".env"
-        extra = "ignore"  # This allows extra fields in .env
+    APP_ENV: str = "development"
+
+    # =========================
+    # Pydantic Settings Config
+    # =========================
+    model_config = {
+        "env_file": ".env",        # load environment variables
+        "extra": "ignore",         # ignore unknown variables
+        "case_sensitive": False
+    }
 
 @lru_cache()
 def get_settings():

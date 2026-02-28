@@ -1,0 +1,115 @@
+# docker-compose.yml
+services:
+  # MySQL Database
+  mysql:
+    image: mysql:8.0
+    container_name: workforce_mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-rootpassword123}
+      MYSQL_DATABASE: ${DB_NAME:-shift-manager}
+      MYSQL_USER: ${DB_USER:-app_user}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-workforce_pass}
+    ports:
+      - "3307:3306"  # Changed to 3307 to avoid conflicts with local MySQL
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./mysql/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - workforce_network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: workforce_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - workforce_network
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend API
+  backend:
+    build: ./backend
+    container_name: workforce_backend
+    restart: unless-stopped
+    environment:
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_USER=${DB_USER:-app_user}
+      - DB_PASSWORD=${DB_PASSWORD:-workforce_pass}
+      - DB_NAME=${DB_NAME:-shift-manager}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - SECRET_KEY=${SECRET_KEY:-your-super-secret-key-change-in-production}
+      - APP_ENV=${APP_ENV:-development}
+      - DEBUG=${DEBUG:-true}
+    volumes:
+      - ./backend:/app  # Mount for development (remove in production)
+      - backend_models:/app/models
+    ports:
+      - "8000:8000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - workforce_network
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Frontend React App
+  frontend:
+    build: ./frontend
+    container_name: workforce_frontend
+    restart: unless-stopped
+    environment:
+      - REACT_APP_API_URL=/api
+      - REACT_APP_WS_URL=ws://localhost/socket.io
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    networks:
+      - workforce_network
+
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: workforce_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"  # HTTPS (for production)
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl  # SSL certificates for HTTPS
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - workforce_network
+
+# Networks
+networks:
+  workforce_network:
+    driver: bridge
+
+# Volumes
+volumes:
+  mysql_data:
+  redis_data:
+  backend_models:
