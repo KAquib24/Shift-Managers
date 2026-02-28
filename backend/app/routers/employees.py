@@ -9,6 +9,7 @@ from app.utils.auth import get_current_active_user, require_role, get_password_h
 
 router = APIRouter(prefix="/employees", tags=["Employees"])
 
+@router.get("", response_model=List[dict])
 @router.get("/", response_model=List[dict])
 async def get_employees(
     current_user: User = Depends(get_current_active_user),

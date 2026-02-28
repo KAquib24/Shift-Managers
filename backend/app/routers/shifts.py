@@ -22,6 +22,7 @@ router = APIRouter(prefix="/shifts", tags=["Shifts"])
 # ============================================
 # 1️⃣ CREATE SHIFT (Admin/Manager only)
 # ============================================
+@router.post("", response_model=ShiftResponse)
 @router.post("/", response_model=ShiftResponse)
 async def create_shift(
     shift_data: ShiftCreate,
