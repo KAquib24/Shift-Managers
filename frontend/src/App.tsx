@@ -7,7 +7,6 @@ import EnhancedSchedule from './components/schedule/EnhancedSchedule';
 import CreateCompany from './components/CreateCompany';
 import AdminDashboard from './components/AdminDashboard';
 import PendingApproval from './components/PendingApproval';
-import DebugSchedule from './components/DebugSchedule';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
 // Loading component
@@ -41,7 +40,6 @@ function AppRoutes() {
       {/* Public routes */}
       <Route path="/login" element={!user ? <Login /> : <Navigate to="/" />} />
       <Route path="/register" element={!user ? <Register /> : <Navigate to="/" />} />
-      <Route path="/debug-schedule" element={<DebugSchedule />} />
       
       {/* Protected routes */}
       <Route
